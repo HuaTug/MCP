@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  mcp-server:
+    build: .
+    container_name: mcp-go-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - MCP_MODE=http
+      - MCP_PORT=8080
+      - MCP_DEBUG=true
+    volumes:
+      - ./data:/app/data
+    networks:
+      - mcp-network
+
+networks:
+  mcp-network:
+    driver: bridge 
