@@ -1,426 +1,355 @@
-# MCP Go 服务器开发指南
+# MCP Demo Server - 高级数据库工具服务器
 
-这是一个完整的 MCP (Model Context Protocol) Go 服务器示例，展示了如何使用 Go 开发 MCP 服务并与 LLM 集成。
+这是一个基于 [MCP Go SDK](https://github.com/mark3labs/mcp-go) 开发的高级 Model Context Protocol (MCP) 服务器，专门为 LLM 提供强大的数据库操作、网络搜索和计算功能。
 
-## 什么是 MCP？
+## 🚀 项目概述
 
-MCP (Model Context Protocol) 是一个专门为 LLM 应用程序设计的协议，它让 LLM 能够安全、标准化地访问外部数据源和工具。可以把它想象成专为 LLM 交互设计的 Web API。
+本项目实现了一个功能丰富的 MCP 服务器，为大语言模型（LLM）提供以下核心能力：
 
-## 核心概念
+- **🗄️ 数据库操作** - 支持 MySQL 数据库的复杂查询、CRUD 操作
+- **🔍 网络搜索** - 集成 Google 搜索 API 进行实时信息检索  
+- **🧮 数学计算** - 基础四则运算功能
+- **🔧 多连接管理** - 支持多个数据库连接的并发管理
 
-### 1. **Server (服务器)**
-- 处理连接管理、协议兼容性和消息路由的核心接口
+## 📖 什么是 MCP？
 
-### 2. **Tools (工具)**
-- 为 LLM 提供功能（类似 POST 端点）
-- 执行计算和产生副作用
-- 例如：计算器、文件操作、API 调用
+**Model Context Protocol (MCP)** 是一个开放标准协议，专门为 AI 应用程序与外部数据源和工具之间建立安全、可控的连接而设计。它为大语言模型（LLM）提供了一种标准化的方式来访问和交互外部系统，同时保持安全性和用户控制。
 
-### 3. **Resources (资源)**
-- 向 LLM 暴露数据（类似 GET 端点）
-- 静态资源（固定URI）和动态资源（使用URI模板）
-- 例如：文件内容、配置信息、数据库查询
+### 🎯 MCP 的核心价值
 
-### 4. **Prompts (提示模板)**
-- 定义 LLM 交互模式的可重用模板
-- 例如：代码审查模板、数据分析模板
+- **🔒 安全可控** - 严格的权限控制和安全边界
+- **📏 标准化** - 统一的协议规范，确保互操作性
+- **🔌 可扩展** - 灵活的架构支持各种工具和数据源
+- **🎮 用户控制** - 用户完全控制 LLM 可以访问的资源
 
-## 项目结构
+## 🏗️ MCP 核心概念
+
+### 1. **🛠️ Tools (工具)**
+类似于 API 的 POST 端点，为 LLM 提供执行操作的能力：
+- 执行计算和业务逻辑
+- 产生副作用（如数据修改）
+- 接受结构化参数输入
+- 返回结构化结果
+
+**示例用途：**
+- 数据库查询和更新
+- 文件操作
+- API 调用
+- 复杂计算
+
+### 2. **📚 Resources (资源)**
+类似于 API 的 GET 端点，向 LLM 暴露数据：
+- **静态资源** - 固定 URI 的数据源
+- **动态资源** - 使用 URI 模板的参数化数据源
+- 只读访问，不产生副作用
+
+**示例用途：**
+- 配置信息
+- 文件内容
+- 数据库表结构
+- 实时状态信息
+
+### 3. **💬 Prompts (提示模板)**
+预定义的 LLM 交互模式：
+- 可重用的对话模板
+- 参数化提示内容
+- 标准化的 LLM 指令
+
+**示例用途：**
+- 代码审查模板
+- 数据分析指南
+- 问题诊断流程
+
+### 4. **🖥️ Server (服务器)**
+MCP 协议的实现核心：
+- 处理连接管理
+- 消息路由和协议兼容
+- 工具、资源和提示的注册管理
+
+## 📁 项目结构
 
 ```
 mcp-demo-server/
-├── go.mod              # Go 模块定义
-├── main.go             # 主服务器代码
-├── README.md           # 使用说明
-└── examples/           # 示例配置文件
+├── go.mod              # Go 模块依赖定义
+├── go.sum              # 依赖版本锁定
+├── main.go             # 主服务器实现
+├── README.md           # 项目文档
+└── demo.db             # SQLite 示例数据库（运行时生成）
 ```
 
-## 快速开始
+## ⚡ 快速开始
 
-### 1. 安装依赖
+### 1. 环境准备
+
+确保您的系统已安装：
+- **Go 1.21+** 
+- **MySQL 8.0+** (可选，支持 SQLite)
+- **Git**
+
+### 2. 克隆和安装
 
 ```bash
-# 初始化 Go 模块
-go mod init mcp-demo-server
+# 克隆项目
+git clone <repository-url>
+cd mcp-demo-server
 
-# 安装 MCP Go SDK
-go get github.com/mark3labs/mcp-go
+# 安装依赖
+go mod tidy
 ```
 
-### 2. 运行服务器
+### 3. 数据库配置
+
+#### 选项 A: 使用 MySQL（推荐）
+```bash
+# 创建数据库
+mysql -u root -p
+CREATE DATABASE mcp_demo;
+```
+
+修改 `main.go` 中的数据库配置：
+```go
+config := DatabaseConfig{
+    Driver:   "mysql",
+    Host:     "localhost",
+    Port:     3306,
+    Database: "mcp_demo",
+    Username: "root",     // 您的用户名
+    Password: "root",     // 您的密码
+}
+```
+
+#### 选项 B: 使用 SQLite（简单部署）
+配置已内置，无需额外设置。服务器启动时会自动创建 `demo.db` 文件。
+
+### 4. Google 搜索配置（可选）
+
+如需启用网络搜索功能，请设置环境变量：
+```bash
+export GOOGLE_API_KEY="your-google-api-key"
+export GOOGLE_SEARCH_ENGINE_ID="your-search-engine-id"
+```
+
+### 5. 启动服务器
 
 ```bash
 # 编译并运行
 go run main.go
+
+# 或编译后运行
+go build -o mcp-server
+./mcp-server
 ```
 
-### 3. 通过 stdio 与服务器交互
+服务器启动后将通过标准输入输出（stdio）协议等待客户端连接。
 
-服务器通过标准输入输出进行通信。你可以使用支持 MCP 的客户端连接：
+## 🛠️ 服务器功能详解
 
+### 核心工具 (Tools)
+
+#### 1. 🧮 calculator - 数学计算器
+**功能**: 执行基本四则运算
+
+**参数**:
+- `operation` (string, 必需): 运算类型
+  - `add` - 加法
+  - `subtract` - 减法  
+  - `multiply` - 乘法
+  - `divide` - 除法
+- `x` (number, 必需): 第一个操作数
+- `y` (number, 必需): 第二个操作数
+
+**使用示例**:
+```json
+{
+  "name": "calculator",
+  "arguments": {
+    "operation": "add",
+    "x": 15.5,
+    "y": 24.3
+  }
+}
+```
+
+#### 2. 🗄️ database_query - 高级数据库查询
+**功能**: 提供多种数据库查询模式，支持原始 SQL、结构化查询和模型查询
+
+**核心参数**:
+- `query_type` (string): 查询类型
+  - `raw` - 原始 SQL 查询（仅支持 SELECT）
+  - `structured` - 结构化查询构建器
+  - `model` - 预定义模型查询
+- `query` (string, 必需): 查询内容
+- `database` (string): 数据库连接名称（默认: "default"）
+
+**结构化查询专属参数**:
+- `table_name` (string): 目标表名
+- `fields` (string): 查询字段（默认: "*"）
+- `where_conditions` (string): WHERE 条件
+- `order_by` (string): 排序规则
+- `limit` (number): 结果限制数量
+- `offset` (number): 分页偏移量
+- `group_by` (string): 分组字段
+- `having` (string): HAVING 条件
+- `join_tables` (string): JSON 格式的关联表信息
+
+**使用示例**:
+
+**原始 SQL 查询**:
+```json
+{
+  "name": "database_query",
+  "arguments": {
+    "query_type": "raw",
+    "query": "SELECT * FROM users WHERE status = 'active' LIMIT 10"
+  }
+}
+```
+
+**结构化查询**:
+```json
+{
+  "name": "database_query", 
+  "arguments": {
+    "query_type": "structured",
+    "query": "select",
+    "table_name": "users",
+    "fields": "id,name,email,status",
+    "where_conditions": "status=active,created_at>2024-01-01",
+    "order_by": "created_at DESC",
+    "limit": 20
+  }
+}
+```
+
+**模型查询**:
+```json
+{
+  "name": "database_query",
+  "arguments": {
+    "query_type": "model", 
+    "model_name": "users",
+    "query": "active"
+  }
+}
+```
+
+#### 3. 🔍 web_search - 网络搜索
+**功能**: 使用 Google Custom Search API 进行实时网络搜索
+
+**参数**:
+- `query` (string, 必需): 搜索关键词
+- `limit` (number): 结果数量限制（默认: 10，最大: 20）
+
+**使用示例**:
+```json
+{
+  "name": "web_search",
+  "arguments": {
+    "query": "Go programming language tutorial",
+    "limit": 5
+  }
+}
+```
+
+### 数据库功能特性
+
+#### 🔗 多连接管理
+- 支持同时连接多个数据库
+- 连接池自动管理和优化
+- 支持 MySQL、PostgreSQL、SQLite
+
+#### 🛡️ 安全特性
+- SQL 注入防护
+- 只读查询限制（原始 SQL 模式）
+- 参数化查询支持
+- 操作权限验证
+
+#### 📊 查询构建器
+结构化查询支持复杂的 SQL 构建：
+
+**WHERE 条件格式**:
 ```bash
-# 使用 MCP 客户端连接
-mcp-client --stdio "go run main.go"
+# 简单格式
+field1=value1,field2>value2,field3!=value3
+
+# JSON 格式  
+{"field1": "value1", "field2": "value2"}
 ```
 
-## 服务器功能
+**JOIN 操作格式**:
+```json
+[
+  {
+    "table": "orders", 
+    "on": "users.id=orders.user_id",
+    "type": "LEFT"
+  }
+]
+```
 
-### 工具 (Tools)
-
-本服务器提供以下工具：
-
-#### 1. calculator - 计算器
-- **描述**: 执行基本数学运算
-- **参数**:
-  - `operation` (string): 运算类型 (add, subtract, multiply, divide)
-  - `x` (number): 第一个数字
-  - `y` (number): 第二个数字
-
-#### 2. read_file - 文件读取
-- **描述**: 读取文件内容
-- **参数**:
-  - `path` (string): 文件路径
-
-#### 3. write_file - 文件写入
-- **描述**: 写入文件内容
-- **参数**:
-  - `path` (string): 文件路径
-  - `content` (string): 要写入的内容
-
-#### 4. http_request - HTTP 请求
-- **描述**: 发送 HTTP 请求
-- **参数**:
-  - `url` (string): 请求 URL
-  - `method` (string): HTTP 方法 (默认: GET)
-  - `body` (string): 请求体（可选）
-
-#### 5. system_info - 系统信息
-- **描述**: 获取系统信息
-- **参数**: 无
-
-#### 6. current_time - 当前时间
-- **描述**: 获取当前时间
-- **参数**:
-  - `format` (string): 时间格式 (默认: "2006-01-02 15:04:05")
-  - `timezone` (string): 时区 (默认: "Local")
-
-### 资源 (Resources)
-
-#### 静态资源
-- `server://status` - 服务器状态信息
-
-#### 动态资源
-- `file://{path}` - 读取指定路径的文件内容
-- `config://{key}` - 获取配置项的值
-
-### 提示模板 (Prompts)
-
-#### 1. code_review - 代码审查
-- **描述**: 代码审查助手
-- **参数**:
-  - `language` (required): 编程语言
-  - `focus` (optional): 审查重点
-
-#### 2. data_analysis - 数据分析
-- **描述**: 数据分析助手
-- **参数**:
-  - `data_type` (required): 数据类型
-
-## 在 LLM 中使用
+## 🎛️ 客户端集成
 
 ### Claude Desktop 集成
 
-1. 在 Claude Desktop 的配置文件中添加：
+在 Claude Desktop 配置文件中添加：
 
 ```json
 {
   "mcpServers": {
-    "go-demo-server": {
+    "database-tools": {
       "command": "go",
-      "args": ["run", "/path/to/your/main.go"],
-      "env": {}
+      "args": ["run", "/path/to/mcp-demo-server/main.go"],
+      "env": {
+        "GOOGLE_API_KEY": "your-api-key",
+        "GOOGLE_SEARCH_ENGINE_ID": "your-search-engine-id"
+      }
     }
   }
 }
 ```
 
-### 其他 LLM 客户端
-
-大多数支持 MCP 的 LLM 客户端都可以通过 stdio 协议连接：
-
-```bash
-# 通用连接方式
-your-llm-client --mcp-server "go run main.go"
-```
-
-## 使用示例
-
-### 1. 使用计算器工具
-
-```json
-{
-  "method": "tools/call",
-  "params": {
-    "name": "calculator",
-    "arguments": {
-      "operation": "add",
-      "x": 10,
-      "y": 5
-    }
-  }
-}
-```
-
-### 2. 读取文件
-
-```json
-{
-  "method": "tools/call", 
-  "params": {
-    "name": "read_file",
-    "arguments": {
-      "path": "./README.md"
-    }
-  }
-}
-```
-
-### 3. 获取服务器状态
-
-```json
-{
-  "method": "resources/read",
-  "params": {
-    "uri": "server://status"
-  }
-}
-```
-
-### 4. 使用代码审查提示
-
-```json
-{
-  "method": "prompts/get",
-  "params": {
-    "name": "code_review",
-    "arguments": {
-      "language": "Go",
-      "focus": "security"
-    }
-  }
-}
-```
-
-## 扩展服务器
-
-### 添加新工具
+### 自定义 LLM 客户端
 
 ```go
-// 添加新工具
-newTool := mcp.NewTool("my_tool",
-    mcp.WithDescription("我的自定义工具"),
-    mcp.WithString("param1",
-        mcp.Required(),
-        mcp.Description("参数描述"),
-    ),
-)
-s.AddTool(newTool, handleMyTool)
+package main
 
-// 实现处理函数
-func handleMyTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-    param1, err := request.RequireString("param1")
+import (
+    "context"
+    "github.com/mark3labs/mcp-go/client"
+    "github.com/mark3labs/mcp-go/mcp"
+)
+
+func main() {
+    // 创建 stdio 客户端
+    c, err := client.NewStdioMCPClient(
+        "go", []string{"run", "/path/to/main.go"},
+    )
     if err != nil {
-        return mcp.NewToolResultError(err.Error()), nil
+        panic(err)
     }
+    defer c.Close()
+
+    ctx := context.Background()
     
-    // 处理逻辑
-    result := "处理结果"
-    
-    return mcp.NewToolResultText(result), nil
-}
-```
+    // 初始化连接
+    if err := c.Initialize(ctx); err != nil {
+        panic(err)
+    }
 
-### 添加新资源
-
-```go
-// 静态资源
-resource := mcp.NewResource(
-    "my://resource",
-    "我的资源",
-    mcp.WithResourceDescription("资源描述"),
-    mcp.WithMIMEType("application/json"),
-)
-s.AddResource(resource, handleMyResource)
-
-// 动态资源模板
-template := mcp.NewResourceTemplate(
-    "my://{id}/data",
-    "动态资源",
-    mcp.WithTemplateDescription("动态资源描述"),
-)
-s.AddResourceTemplate(template, handleMyTemplate)
-```
-
-### 添加提示模板
-
-```go
-prompt := mcp.NewPrompt("my_prompt",
-    mcp.WithPromptDescription("我的提示模板"),
-    mcp.WithArgument("param1",
-        mcp.ArgumentDescription("参数描述"),
-        mcp.RequiredArgument(),
-    ),
-)
-s.AddPrompt(prompt, handleMyPrompt)
-```
-
-## 高级功能
-
-### 会话管理
-
-```go
-// 启用会话管理
-s := server.NewMCPServer(
-    "Server Name",
-    "1.0.0",
-    server.WithToolCapabilities(true),
-)
-
-// 实现会话
-type MySession struct {
-    id           string
-    notifChannel chan mcp.JSONRPCNotification
-    isInitialized bool
-}
-
-// 注册会话
-session := &MySession{
-    id:           "user-123",
-    notifChannel: make(chan mcp.JSONRPCNotification, 10),
-}
-s.RegisterSession(context.Background(), session)
-```
-
-### HTTP 传输
-
-```go
-// 启用 HTTP 传输而不是 stdio
-httpServer := server.NewStreamableHTTPServer(mcpServer)
-log.Printf("HTTP server listening on :8080/mcp")
-if err := httpServer.Start(":8080"); err != nil {
-    log.Fatalf("Server error: %v", err)
-}
-```
-
-### 采样支持
-
-```go
-// 启用采样功能（调用 LLM）
-mcpServer.EnableSampling()
-
-// 在工具中使用采样
-func handleAskLLM(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-    question, _ := request.RequireString("question")
-    
-    samplingRequest := mcp.CreateMessageRequest{
-        CreateMessageParams: mcp.CreateMessageParams{
-            Messages: []mcp.SamplingMessage{
-                {
-                    Role: mcp.RoleUser,
-                    Content: mcp.TextContent{
-                        Type: "text",
-                        Text: question,
-                    },
-                },
+    // 调用数据库查询工具
+    result, err := c.CallTool(ctx, mcp.CallToolRequest{
+        Params: mcp.CallToolRequestParams{
+            Name: "database_query",
+            Arguments: map[string]interface{}{
+                "query_type": "structured",
+                "query": "select", 
+                "table_name": "users",
+                "limit": 10,
             },
-            MaxTokens: 1000,
         },
-    }
-    
-    serverFromCtx := server.ServerFromContext(ctx)
-    result, err := serverFromCtx.RequestSampling(ctx, samplingRequest)
-    // 处理结果...
+    })
 }
 ```
 
-## 部署
 
-### Docker 部署
-
-```dockerfile
-FROM golang:1.21-alpine AS builder
-WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN go build -o mcp-server main.go
-
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/mcp-server .
-CMD ["./mcp-server"]
-```
-
-### 系统服务
-
-```bash
-# 创建 systemd 服务文件
-sudo tee /etc/systemd/system/mcp-server.service << EOF
-[Unit]
-Description=MCP Go Server
-After=network.target
-
-[Service]
-Type=simple
-User=mcp
-WorkingDirectory=/opt/mcp-server
-ExecStart=/opt/mcp-server/mcp-server
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# 启用并启动服务
-sudo systemctl enable mcp-server
-sudo systemctl start mcp-server
-```
-
-## 故障排除
-
-### 常见问题
-
-1. **连接失败**
-   - 检查服务器是否正确启动
-   - 确认客户端和服务器使用相同的传输协议
-
-2. **工具调用失败**
-   - 检查参数是否正确
-   - 查看服务器日志获取错误信息
-
-3. **资源访问失败**
-   - 确认 URI 格式正确
-   - 检查资源是否存在
-
-### 调试
-
-启用详细日志：
-
-```go
-mcpServer := server.NewMCPServer(
-    "Server Name",
-    "1.0.0",
-    server.WithLogging(),  // 启用日志
-)
-```
-
-## 参考资料
-
-- [MCP 官方文档](https://modelcontextprotocol.io)
-- [MCP Go SDK 文档](https://pkg.go.dev/github.com/mark3labs/mcp-go)
-- [MCP 规范](https://spec.modelcontextprotocol.io)
-
-## 许可证
-
-本项目采用 MIT 许可证。 
+**享受使用 MCP Demo Server 为您的 LLM 应用添加强大的数据库和搜索能力！** 🚀 
