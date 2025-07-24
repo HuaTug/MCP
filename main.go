@@ -182,6 +182,7 @@ func main() {
 	if err := server.ServeStdio(mcpServer); err != nil {
 		log.Fatalf("服务器错误: %v", err)
 	}
+	log.Println("MCP服务器已停止")
 }
 
 // 注册工具
@@ -754,10 +755,18 @@ func handleWebSearch(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	return mcp.NewToolResultText(resultText.String()), nil
 }
 
-// performWebSearch performs actual web search using DuckDuckGo API
+// performWebSearch performs actual web search using Google Custom Search API
 func performWebSearch(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	apiKey := os.Getenv("GOOGLE_API_KEY")
 	searchEngineID := os.Getenv("GOOGLE_SEARCH_ENGINE_ID")
+
+	// 如果环境变量未设置，使用默认值
+	if apiKey == "" {
+		apiKey = "AIzaSyCJffa8kg0c1_Ef7zl18QUMZVvqGwBVtrM"
+	}
+	if searchEngineID == "" {
+		searchEngineID = "e6676dbfd052c4ecf"
+	}
 
 	if apiKey == "" || searchEngineID == "" {
 		return nil, fmt.Errorf("未配置Google API密钥或搜索引擎ID")

@@ -24,7 +24,35 @@
 
 ## 🏗️ MCP 核心概念
 
-### 1. **🛠️ Tools (工具)**
+### 1. *    return tools
+}
+```
+
+### 🚀 完整演示示例
+
+我们提供了一个完整的演示程序，展示LLM如何智能调用MCP工具：
+
+👉 **[查看完整演示代码](./examples/README.md)**
+
+运行演示：
+```bash
+# 1. 启动MCP服务器
+go run main.go
+
+# 2. 在新终端运行演示
+cd examples
+go mod init mcp-demo-integration  
+go get github.com/mark3labs/mcp-go
+go run llm_integration_demo.go
+```
+
+演示将展示以下智能场景：
+- ✅ 自动数据库查询："查询活跃用户数量"
+- ✅ 实时信息搜索："2025年Go最新特性"  
+- ✅ 数学计算："计算15.5+24.3"
+- ✅ 常规问答："什么是人工智能"
+
+## � 高级配置Tools (工具)**
 类似于 API 的 POST 端点，为 LLM 提供执行操作的能力：
 - 执行计算和业务逻辑
 - 产生副作用（如数据修改）
@@ -351,5 +379,329 @@ func main() {
 }
 ```
 
+## 🤖 LLM智能工具调用集成
 
-**享受使用 MCP Demo Server 为您的 LLM 应用添加强大的数据库和搜索能力！** 🚀 
+### 集成原理
+
+当用户向LLM提问时，LLM会自动判断是否需要调用外部工具来获取信息：
+
+```
+用户提问 → LLM分析 → 判断知识边界 → 选择合适工具 → 调用MCP服务 → 整合结果 → 回答用户
+```
+
+### 🎯 触发场景示例
+
+#### 1. 实时信息查询
+```
+用户：2025年最新的Go语言特性有哪些？
+LLM思考：我的训练数据可能不包含2025年的最新信息
+动作：调用 web_search 工具搜索最新信息
+```
+
+#### 2. 数据库信息查询
+```
+用户：帮我查看一下用户表中活跃用户的统计信息
+LLM思考：这需要查询具体的数据库
+动作：调用 database_query 工具查询数据
+```
+
+#### 3. 复杂计算
+```
+用户：计算复合利率：本金10000，年利率5.5%，复利10年
+LLM思考：这需要精确的数学计算
+动作：调用 calculator 工具进行计算
+```
+
+### 🔧 集成实现方式
+
+#### 方式1: Claude Desktop集成（推荐新手）
+
+**步骤1: 配置Claude Desktop**
+
+找到Claude Desktop配置文件位置：
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux**: `~/.config/claude/claude_desktop_config.json`
+
+**步骤2: 添加MCP服务器配置**
+
+```json
+{
+  "mcpServers": {
+    "database-tools": {
+      "command": "go",
+      "args": ["run", "/path/to/mcp-demo-server/main.go"],
+      "env": {
+        "GOOGLE_API_KEY": "your-google-api-key",
+        "GOOGLE_SEARCH_ENGINE_ID": "your-search-engine-id",
+        "DB_HOST": "localhost",
+        "DB_PORT": "3306",
+        "DB_NAME": "mcp_demo",
+        "DB_USER": "root",
+        "DB_PASSWORD": "password"
+      }
+    }
+  }
+}
+```
+
+**步骤3: 重启Claude Desktop**
+
+配置完成后，Claude会自动连接到您的MCP服务器，可以智能调用工具。
+
+#### 方式2: API集成（开发者推荐）
+
+创建一个智能LLM应用，集成多个MCP服务器：
+
+```go
+package main
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "log"
+    "strings"
+
+    "github.com/mark3labs/mcp-go/client"
+    "github.com/mark3labs/mcp-go/mcp"
+)
+
+// LLM应用结构
+type IntelligentLLMApp struct {
+    mcpClient     client.Client
+    availableTools []mcp.Tool
+}
+
+// 初始化应用
+func NewIntelligentLLMApp() (*IntelligentLLMApp, error) {
+    // 连接MCP服务器
+    mcpClient, err := client.NewStdioMCPClient(
+        "go", []string{"run", "./main.go"},
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    ctx := context.Background()
+    if err := mcpClient.Initialize(ctx); err != nil {
+        return nil, err
+    }
+
+    // 获取可用工具
+    toolsResult, err := mcpClient.ListTools(ctx)
+    if err != nil {
+        return nil, err
+    }
+
+    return &IntelligentLLMApp{
+        mcpClient:     mcpClient,
+        availableTools: toolsResult.Tools,
+    }, nil
+}
+
+// 智能处理用户查询
+func (app *IntelligentLLMApp) ProcessQuery(ctx context.Context, userQuery string) (string, error) {
+    // 1. 分析用户查询，判断是否需要工具
+    toolNeeded := app.analyzeQueryForTools(userQuery)
+    
+    if toolNeeded == nil {
+        // 直接使用LLM回答
+        return app.callLLM(ctx, userQuery, nil)
+    }
+
+    // 2. 调用相应的MCP工具
+    toolResult, err := app.callTool(ctx, toolNeeded)
+    if err != nil {
+        return "", fmt.Errorf("工具调用失败: %v", err)
+    }
+
+    // 3. 将工具结果与原查询一起发送给LLM
+    enhancedPrompt := fmt.Sprintf(`
+用户问题: %s
+
+工具查询结果:
+%s
+
+请基于以上工具提供的信息来回答用户的问题。如果工具结果与问题相关，请整合这些信息给出准确回答。
+`, userQuery, app.formatToolResult(toolResult))
+
+    return app.callLLM(ctx, enhancedPrompt, toolResult)
+}
+
+// 分析查询是否需要工具
+func (app *IntelligentLLMApp) analyzeQueryForTools(query string) *ToolCall {
+    query = strings.ToLower(query)
+    
+    // 实时信息查询
+    if strings.Contains(query, "最新") || strings.Contains(query, "今天") || 
+       strings.Contains(query, "现在") || strings.Contains(query, "当前") ||
+       strings.Contains(query, "2024") || strings.Contains(query, "2025") {
+        return &ToolCall{
+            Name: "web_search",
+            Args: map[string]interface{}{
+                "query": query,
+                "limit": 5,
+            },
+        }
+    }
+    
+    // 数据库查询
+    if strings.Contains(query, "用户") || strings.Contains(query, "数据库") ||
+       strings.Contains(query, "查询") || strings.Contains(query, "统计") {
+        return &ToolCall{
+            Name: "database_query",
+            Args: map[string]interface{}{
+                "query_type": "structured",
+                "query": "select",
+                "table_name": "users",
+                "limit": 10,
+            },
+        }
+    }
+    
+    // 数学计算
+    if strings.Contains(query, "计算") || strings.Contains(query, "加") ||
+       strings.Contains(query, "减") || strings.Contains(query, "乘") ||
+       strings.Contains(query, "除") {
+        // 这里可以解析具体的数学表达式
+        return app.parseCalculation(query)
+    }
+    
+    return nil
+}
+
+// 工具调用结构
+type ToolCall struct {
+    Name string
+    Args map[string]interface{}
+}
+
+// 调用工具
+func (app *IntelligentLLMApp) callTool(ctx context.Context, toolCall *ToolCall) (*mcp.CallToolResult, error) {
+    return app.mcpClient.CallTool(ctx, mcp.CallToolRequest{
+        Params: mcp.CallToolRequestParams{
+            Name:      toolCall.Name,
+            Arguments: toolCall.Args,
+        },
+    })
+}
+
+// 格式化工具结果
+func (app *IntelligentLLMApp) formatToolResult(result *mcp.CallToolResult) string {
+    if result.IsError {
+        return fmt.Sprintf("工具执行出错: %v", result.Content)
+    }
+    
+    var formattedResult strings.Builder
+    for _, content := range result.Content {
+        if textContent, ok := content.(mcp.TextContent); ok {
+            formattedResult.WriteString(textContent.Text)
+            formattedResult.WriteString("\n")
+        }
+    }
+    
+    return formattedResult.String()
+}
+
+// 调用LLM (这里需要集成具体的LLM API)
+func (app *IntelligentLLMApp) callLLM(ctx context.Context, prompt string, toolResult *mcp.CallToolResult) (string, error) {
+    // 这里集成您选择的LLM API (OpenAI, Claude, etc.)
+    // 示例代码...
+    return "基于工具结果，LLM处理后的智能回答", nil
+}
+
+// 解析计算请求
+func (app *IntelligentLLMApp) parseCalculation(query string) *ToolCall {
+    // 简单的数学表达式解析
+    // 实际应用中可以使用更复杂的NLP解析
+    return &ToolCall{
+        Name: "calculator",
+        Args: map[string]interface{}{
+            "operation": "add",
+            "x":         10,
+            "y":         20,
+        },
+    }
+}
+```
+
+### 🎯 实际应用场景演示
+
+#### 场景1: 智能数据分析助手
+
+```
+用户: "分析一下最近注册的用户趋势"
+
+LLM思考过程:
+1. 识别这是数据分析请求
+2. 需要查询数据库获取用户注册数据
+3. 调用database_query工具
+
+工具调用:
+{
+  "name": "database_query",
+  "arguments": {
+    "query_type": "structured", 
+    "query": "select",
+    "table_name": "users",
+    "fields": "created_at, COUNT(*) as count",
+    "where_conditions": "created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)",
+    "group_by": "DATE(created_at)",
+    "order_by": "created_at DESC"
+  }
+}
+
+LLM整合回答:
+"根据数据库查询结果，最近30天的用户注册趋势如下：
+[具体分析数据和图表描述]
+建议：[基于数据的专业建议]"
+```
+
+#### 场景2: 实时信息搜索
+
+```
+用户: "Go 1.23版本有什么新特性？"
+
+LLM思考过程:
+1. 识别这是关于最新技术信息的查询
+2. 我的训练数据可能不包含最新版本信息
+3. 调用web_search工具获取最新信息
+
+工具调用:
+{
+  "name": "web_search", 
+  "arguments": {
+    "query": "Go 1.23 new features changelog",
+    "limit": 5
+  }
+}
+
+LLM整合回答:
+"基于最新搜索结果，Go 1.23版本的主要新特性包括：
+[搜索结果整合和专业分析]"
+```
+
+### 💡 智能工具选择策略
+
+MCP系统支持LLM根据查询内容智能选择最合适的工具：
+
+```go
+// 智能工具选择逻辑示例
+func (app *IntelligentLLMApp) selectBestTools(query string) []ToolCall {
+    var tools []ToolCall
+    
+    // 多工具组合使用
+    if strings.Contains(query, "最新") && strings.Contains(query, "用户") {
+        // 先搜索最新信息，再查询数据库
+        tools = append(tools, 
+            ToolCall{Name: "web_search", Args: buildSearchArgs(query)},
+            ToolCall{Name: "database_query", Args: buildDBArgs(query)},
+        )
+    }
+    
+    return tools
+}
+```
+
+## � 高级配置 
