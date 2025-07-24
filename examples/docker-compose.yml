@@ -1,21 +1,37 @@
 version: '3.8'
 
 services:
-  mcp-server:
-    build: .
-    container_name: mcp-go-server
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
+  mysql:
+    image: mysql:8.0
+    container_name: mcp_demo_mysql
+    restart: always
     environment:
-      - MCP_MODE=http
-      - MCP_PORT=8080
-      - MCP_DEBUG=true
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: mcp_demo
+      MYSQL_USER: mcp_user
+      MYSQL_PASSWORD: mcp_password
+    ports:
+      - "3306:3306"
     volumes:
-      - ./data:/app/data
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    command: --default-authentication-plugin=mysql_native_password
+             --character-set-server=utf8mb4
+             --collation-server=utf8mb4_unicode_ci
+             --sql_mode=STRICT_TRANS_TABLES,NO_ZERO_DATE,NO_ZERO_IN_DATE,ERROR_FOR_DIVISION_BY_ZERO
     networks:
-      - mcp-network
+      - mcp_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      timeout: 20s
+      retries: 10
+      interval: 10s
+
+
+volumes:
+  mysql_data:
+    driver: local
 
 networks:
-  mcp-network:
-    driver: bridge 
+  mcp_network:
+    driver: bridge
