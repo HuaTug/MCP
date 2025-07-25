@@ -6,10 +6,8 @@ services:
     container_name: mcp_demo_mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: xui612401
       MYSQL_DATABASE: mcp_demo
-      MYSQL_USER: mcp_user
-      MYSQL_PASSWORD: mcp_password
     ports:
       - "3306:3306"
     volumes:
@@ -22,7 +20,7 @@ services:
     networks:
       - mcp_network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-pxui612401"]
       timeout: 20s
       retries: 10
       interval: 10s

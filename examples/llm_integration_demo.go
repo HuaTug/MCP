@@ -88,6 +88,17 @@ type QueryResult struct {
 	ProcessTime time.Duration `json:"process_time"`
 }
 
+// 语义分析结果
+type ToolAnalysis struct {
+	NeedsWebSearch   bool                   `json:"needs_web_search"`
+	WebSearchQuery   string                 `json:"web_search_query"`
+	NeedsDatabase    bool                   `json:"needs_database"`
+	DatabaseQuery    map[string]interface{} `json:"database_query"`
+	NeedsCalculation bool                   `json:"needs_calculation"`
+	CalculationArgs  map[string]interface{} `json:"calculation_args"`
+	Reasoning        string                 `json:"reasoning"`
+}
+
 // 初始化智能助手
 func NewIntelligentAssistant() (*IntelligentAssistant, error) {
 	// 设置自定义命令函数，指定工作目录
@@ -212,6 +223,227 @@ func (ia *IntelligentAssistant) ProcessUserQuery(ctx context.Context, userQuery 
 
 // 智能分析查询，确定需要哪些工具
 func (ia *IntelligentAssistant) analyzeQueryForTools(query string) []ToolCall {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// 使用语义理解来分析查询意图
+	toolAnalysis, err := ia.analyzeQuerySemantics(ctx, query)
+	if err != nil {
+		fmt.Printf("⚠️ 语义分析失败，回退到关键词匹配: %v\n", err)
+		return ia.analyzeQueryForToolsFallback(query)
+	}
+
+	var tools []ToolCall
+
+	// 根据语义分析结果构建工具调用
+	if toolAnalysis.NeedsWebSearch {
+		tools = append(tools, ToolCall{
+			Name: "web_search",
+			Args: map[string]interface{}{
+				"query": toolAnalysis.WebSearchQuery,
+				"limit": 5,
+			},
+		})
+		fmt.Printf("📡 语义分析：需要网络搜索 - %s\n", toolAnalysis.WebSearchQuery)
+	}
+
+	if toolAnalysis.NeedsDatabase {
+		tools = append(tools, ToolCall{
+			Name: "database_query",
+			Args: toolAnalysis.DatabaseQuery,
+		})
+		fmt.Printf("🗄️ 语义分析：需要数据库查询\n")
+	}
+
+	if toolAnalysis.NeedsCalculation {
+		tools = append(tools, ToolCall{
+			Name: "calculator",
+			Args: toolAnalysis.CalculationArgs,
+		})
+		fmt.Printf("🧮 语义分析：需要数学计算\n")
+	}
+
+	return tools
+}
+
+// 使用LLM进行语义分析，判断需要哪些工具
+func (ia *IntelligentAssistant) analyzeQuerySemantics(ctx context.Context, query string) (*ToolAnalysis, error) {
+	// 获取LLM配置
+	apiURL, apiKey, model := getLLMConfig()
+
+	// 构建分析提示词
+	prompt := fmt.Sprintf(`你是一个智能助手的工具调用分析器。请分析用户的查询，判断需要调用哪些工具。
+
+可用的工具：
+1. web_search - 网络搜索工具，用于获取最新信息、新闻、实时数据、当前时间日期等
+2. database_query - 数据库查询工具，用于查询用户数据、统计信息等
+3. calculator - 计算器工具，用于数学运算
+
+用户查询：%s
+
+请仔细分析这个查询，判断是否需要调用工具，并以JSON格式返回分析结果：
+
+{
+  "needs_web_search": false,
+  "web_search_query": "",
+  "needs_database": false,
+  "database_query": {},
+  "needs_calculation": false,
+  "calculation_args": {},
+  "reasoning": "分析推理过程"
+}
+
+分析规则：
+- **需要web_search的情况：**
+  * 询问当前时间、日期（如"今天几号"、"现在几点"、"今天星期几"）
+  * 最新消息、新闻、实时数据
+  * 当前天气、股价等实时信息
+  * 任何需要"当前"、"现在"、"今天"状态的查询
+
+- **需要database_query的情况：**
+  * 查询用户数据、统计信息
+  * 数据库相关操作（增删改查）
+  * 涉及"用户"、"统计"、"数据"等关键词
+
+- **需要calculator的情况：**
+  * 明确的数学计算、运算
+  * 涉及数字计算的问题
+
+- **不需要工具的情况：**
+  * 一般性知识问题
+  * 概念解释
+  * 历史事实等静态知识
+
+重要提醒：时间和日期相关的查询（如"今天几号"）属于实时信息，必须使用web_search工具！
+
+请只返回JSON，不要包含其他内容。`, query)
+
+	// 构建API请求
+	llmRequest := LLMRequest{
+		Model: model,
+		Messages: []LLMMessage{
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+		Stream: false, // 使用非流式响应以便解析JSON
+		ExtraBody: ExtraBody{
+			EnableSearch: false,
+		},
+	}
+
+	// 序列化请求
+	requestBody, err := json.Marshal(llmRequest)
+	if err != nil {
+		return nil, fmt.Errorf("序列化请求失败: %v", err)
+	}
+
+	// 发送HTTP请求
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(requestBody))
+	if err != nil {
+		return nil, fmt.Errorf("创建请求失败: %v", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("发送请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API请求失败, 状态码: %d, 响应: %s", resp.StatusCode, string(body))
+	}
+
+	// 读取响应
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %v", err)
+	}
+
+	// 解析响应，提取JSON内容
+	response := string(body)
+
+	// 如果是流式响应格式，需要提取实际内容
+	if strings.Contains(response, "data:") {
+		lines := strings.Split(response, "\n")
+		var content strings.Builder
+		for _, line := range lines {
+			if strings.HasPrefix(line, "data: ") {
+				jsonData := strings.TrimPrefix(line, "data: ")
+				if jsonData != "[DONE]" && jsonData != "" {
+					var streamResp LLMResponse
+					if parseErr := json.Unmarshal([]byte(jsonData), &streamResp); parseErr == nil {
+						if len(streamResp.Choices) > 0 {
+							content.WriteString(streamResp.Choices[0].Delta.Content)
+						}
+					}
+				}
+			}
+		}
+		response = content.String()
+	} else {
+		// 非流式响应，直接解析
+		var llmResponse struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		if parseErr := json.Unmarshal(body, &llmResponse); parseErr == nil {
+			if len(llmResponse.Choices) > 0 {
+				response = llmResponse.Choices[0].Message.Content
+			}
+		}
+	}
+
+	// 提取JSON部分
+	start := strings.Index(response, "{")
+	end := strings.LastIndex(response, "}")
+	if start == -1 || end == -1 || start >= end {
+		return nil, fmt.Errorf("无法从响应中提取JSON: %s", response)
+	}
+
+	jsonStr := response[start : end+1]
+
+	// 解析工具分析结果
+	var analysis ToolAnalysis
+	if err := json.Unmarshal([]byte(jsonStr), &analysis); err != nil {
+		return nil, fmt.Errorf("解析分析结果失败: %v, 原始响应: %s", err, jsonStr)
+	}
+
+	// 智能填充工具参数
+	ia.fillToolParameters(&analysis, query)
+
+	return &analysis, nil
+}
+
+// 智能填充工具参数
+func (ia *IntelligentAssistant) fillToolParameters(analysis *ToolAnalysis, query string) {
+	// 填充网络搜索参数
+	if analysis.NeedsWebSearch && analysis.WebSearchQuery == "" {
+		analysis.WebSearchQuery = query
+	}
+
+	// 填充数据库查询参数
+	if analysis.NeedsDatabase && len(analysis.DatabaseQuery) == 0 {
+		analysis.DatabaseQuery = ia.buildDatabaseQuery(query)
+	}
+
+	// 填充计算参数
+	if analysis.NeedsCalculation && len(analysis.CalculationArgs) == 0 {
+		analysis.CalculationArgs = ia.parseCalculation(query)
+	}
+}
+
+// 备用的关键词匹配方法（当语义分析失败时使用）
+func (ia *IntelligentAssistant) analyzeQueryForToolsFallback(query string) []ToolCall {
 	var tools []ToolCall
 	query = strings.ToLower(query)
 
@@ -224,7 +456,7 @@ func (ia *IntelligentAssistant) analyzeQueryForTools(query string) []ToolCall {
 				"limit": 5,
 			},
 		})
-		fmt.Printf("📡 检测到需要网络搜索\n")
+		fmt.Printf("📡 关键词匹配：需要网络搜索\n")
 	}
 
 	// 检测是否需要数据库查询
@@ -233,7 +465,7 @@ func (ia *IntelligentAssistant) analyzeQueryForTools(query string) []ToolCall {
 			Name: "database_query",
 			Args: ia.buildDatabaseQuery(query),
 		})
-		fmt.Printf("🗄️ 检测到需要数据库查询\n")
+		fmt.Printf("🗄️ 关键词匹配：需要数据库查询\n")
 	}
 
 	// 检测是否需要数学计算
@@ -244,7 +476,7 @@ func (ia *IntelligentAssistant) analyzeQueryForTools(query string) []ToolCall {
 				Name: "calculator",
 				Args: calcArgs,
 			})
-			fmt.Printf("🧮 检测到需要数学计算\n")
+			fmt.Printf("🧮 关键词匹配：需要数学计算\n")
 		}
 	}
 
@@ -254,8 +486,12 @@ func (ia *IntelligentAssistant) analyzeQueryForTools(query string) []ToolCall {
 // 判断是否需要网络搜索
 func (ia *IntelligentAssistant) needsWebSearch(query string) bool {
 	webSearchKeywords := []string{
-		"最新", "今天", "现在", "当前", "2024", "2025",
-		"新闻", "动态", "发布", "更新", "最近",
+		// 时间日期相关
+		"今天", "现在", "当前", "今日", "此刻", "目前",
+		"几号", "几月", "几点", "星期几", "周几", "日期", "时间",
+		// 最新信息相关
+		"最新", "新闻", "动态", "发布", "更新", "最近",
+		"2024", "2025", "实时", "当下",
 	}
 
 	for _, keyword := range webSearchKeywords {
@@ -530,10 +766,12 @@ func runDemo() {
 	// 演示查询场景
 	demoQueries := []string{
 		"帮我查询一下活跃用户的数量",
-		"2025年Go语言有什么最新特性？",
+		"今天是几月几号",
+		"现在几点了",
 		"计算15.5加上24.3的结果",
 		"什么是人工智能？", // 不需要工具的查询
-		"统计一下用户状态分布情况",
+		"今天星期几",
+		"当前时间是多少",
 	}
 
 	ctx := context.Background()

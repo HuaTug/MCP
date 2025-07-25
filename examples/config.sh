@@ -10,7 +10,7 @@ export DB_HOST="localhost"
 export DB_PORT="3306"
 export DB_NAME="mcp_demo"
 export DB_USER="root"
-export DB_PASSWORD="root"
+export DB_PASSWORD="xui612401"
 
 # Google搜索配置（可选）
 export GOOGLE_API_KEY="AIzaSyCJffa8kg0c1_Ef7zl18QUMZVvqGwBVtrM"
